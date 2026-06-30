@@ -460,36 +460,43 @@ class AlbumBuffer:
         self.timers = {}
         self.lock = asyncio.Lock()
     
-    async def add_message(self, message: Message, bot) -> bool:  # <-- پارامتر bot اضافه شد
+    async def add_message(self, message: Message, bot) -> bool:
+        """افزودن پیام به بافر با دریافت bot"""
         try:
             mgid = message.media_group_id
-            if not mgid:
+            if not mgid or not bot:
                 return False
+            
             async with self.lock:
                 if mgid not in self.buffer:
                     self.buffer[mgid] = []
-                    self.timers[mgid] = asyncio.create_task(self._flush(mgid, bot))  # <-- bot پاس داده شد
+                    self.timers[mgid] = asyncio.create_task(self._flush(mgid, bot))
                 self.buffer[mgid].append(message)
                 return True
         except Exception as e:
             error_logger.error(f"خطا در album_buffer.add_message: {e}")
             return False
     
-    async def _flush(self, mgid: str, bot):  # <-- پارامتر bot اضافه شد
+    async def _flush(self, mgid: str, bot):
+        """پس از تأخیر، آلبوم را ارسال کن"""
         try:
             await asyncio.sleep(self.delay)
+            
             async with self.lock:
                 messages = self.buffer.pop(mgid, [])
                 self.timers.pop(mgid, None)
+            
             if not messages:
                 return
             
+            # ارسال به همه‌ی گروه‌های مقصد
             for gid in TARGET_GROUPS:
                 try:
-                    await send_album_group(messages, gid, bot)  # <-- bot پاس داده شد
+                    await send_album_group(messages, gid, bot)
                 except Exception as e:
                     error_logger.error(f"خطا در ارسال آلبوم به {gid}: {e}")
             
+            # حذف پیام‌های اصلی
             if DELETE_AFTER_FORWARD:
                 for msg in messages:
                     try:
@@ -497,17 +504,22 @@ class AlbumBuffer:
                     except Exception:
                         pass
             
+            # اطلاع به کاربر
             try:
                 await messages[0].reply_text("📸 آلبوم ارسال شد.")
             except Exception:
                 pass
+                
         except Exception as e:
             error_logger.error(f"خطا در album_buffer._flush: {e}\n{traceback.format_exc()}")
-
 album_buffer = AlbumBuffer(delay=0.7)
 
 async def send_album_group(messages: List[Message], chat_id: int, bot) -> bool:
+    """ارسال آلبوم با دریافت bot به عنوان پارامتر"""
     try:
+        if not messages or not bot:
+            return False
+        
         media_group = []
         for msg in messages:
             if msg.photo:
@@ -522,6 +534,7 @@ async def send_album_group(messages: List[Message], chat_id: int, bot) -> bool:
                     caption=msg.caption if not media_group else None,
                     caption_entities=msg.caption_entities if not media_group else None
                 ))
+        
         if media_group:
             await bot.send_media_group(chat_id=chat_id, media=media_group)
             return True
@@ -1071,6 +1084,7 @@ async def forward_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # آلبوم
         bot = update.get_bot()
         if message.media_group_id:
+            bot = update.get_bot()
             await album_buffer.add_message(message, bot)
             return
         
