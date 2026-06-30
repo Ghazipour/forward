@@ -354,7 +354,6 @@ def build_application():
             "read_timeout": CONNECTION_TIMEOUT,
             "write_timeout": CONNECTION_TIMEOUT,
             "pool_timeout": CONNECTION_TIMEOUT,
-            "concurrent_requests": MAX_CONCURRENT * 2,
         }
         if USE_PROXY and PROXY_URL:
             request_kwargs["proxy_url"] = PROXY_URL
