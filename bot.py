@@ -514,12 +514,13 @@ async def send_album_group(messages: List[Message], chat_id: int) -> bool:
                 media_group.append(InputMediaPhoto(
                     msg.photo[-1].file_id,
                     caption=msg.caption if not media_group else None,
+                    caption_entities=msg.caption_entities if not media_group else None
                 ))
             elif msg.video:
                 media_group.append(InputMediaVideo(
                     msg.video.file_id,
                     caption=msg.caption if not media_group else None,
-                    parse_mode=msg.parse_mode
+                    caption_entities=msg.caption_entities if not media_group else None
                 ))
         if media_group:
             await messages[0].bot.send_media_group(chat_id=chat_id, media=media_group)
