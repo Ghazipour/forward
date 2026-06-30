@@ -514,7 +514,6 @@ async def send_album_group(messages: List[Message], chat_id: int) -> bool:
                 media_group.append(InputMediaPhoto(
                     msg.photo[-1].file_id,
                     caption=msg.caption if not media_group else None,
-                    parse_mode=msg.parse_mode
                 ))
             elif msg.video:
                 media_group.append(InputMediaVideo(
@@ -553,7 +552,6 @@ async def send_single_message(message: Message, chat_id: int) -> bool:
         common_params = {
             "chat_id": chat_id,
             "caption": message.caption,
-            "parse_mode": message.parse_mode,
             "caption_entities": message.caption_entities,
         }
         
@@ -562,7 +560,6 @@ async def send_single_message(message: Message, chat_id: int) -> bool:
             await message.bot.send_message(
                 chat_id=chat_id,
                 text=message.text,
-                parse_mode=message.parse_mode,
                 entities=message.entities,
                 disable_web_page_preview=True
             )
