@@ -460,7 +460,7 @@ class AlbumBuffer:
         self.timers = {}
         self.lock = asyncio.Lock()
     
-    async def add_message(self, message: Message) -> bool:
+    async def add_message(self, message: Message, bot) -> bool:  # <-- پارامتر bot اضافه شد
         try:
             mgid = message.media_group_id
             if not mgid:
@@ -468,14 +468,14 @@ class AlbumBuffer:
             async with self.lock:
                 if mgid not in self.buffer:
                     self.buffer[mgid] = []
-                    self.timers[mgid] = asyncio.create_task(self._flush(mgid))
+                    self.timers[mgid] = asyncio.create_task(self._flush(mgid, bot))  # <-- bot پاس داده شد
                 self.buffer[mgid].append(message)
                 return True
         except Exception as e:
             error_logger.error(f"خطا در album_buffer.add_message: {e}")
             return False
     
-    async def _flush(self, mgid: str):
+    async def _flush(self, mgid: str, bot):  # <-- پارامتر bot اضافه شد
         try:
             await asyncio.sleep(self.delay)
             async with self.lock:
@@ -486,7 +486,7 @@ class AlbumBuffer:
             
             for gid in TARGET_GROUPS:
                 try:
-                    await send_album_group(messages, gid)
+                    await send_album_group(messages, gid, bot)  # <-- bot پاس داده شد
                 except Exception as e:
                     error_logger.error(f"خطا در ارسال آلبوم به {gid}: {e}")
             
@@ -506,7 +506,7 @@ class AlbumBuffer:
 
 album_buffer = AlbumBuffer(delay=0.7)
 
-async def send_album_group(messages: List[Message], chat_id: int) -> bool:
+async def send_album_group(messages: List[Message], chat_id: int, bot) -> bool:
     try:
         media_group = []
         for msg in messages:
@@ -523,7 +523,7 @@ async def send_album_group(messages: List[Message], chat_id: int) -> bool:
                     caption_entities=msg.caption_entities if not media_group else None
                 ))
         if media_group:
-            await messages[0].bot.send_media_group(chat_id=chat_id, media=media_group)
+            await bot.send_media_group(chat_id=chat_id, media=media_group)
             return True
         return False
     except Exception as e:
@@ -1069,8 +1069,9 @@ async def forward_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await user_history.add_message(user_id, msg_text, msg_type, datetime.now(), user_obj)
         
         # آلبوم
+        bot = update.get_bot()
         if message.media_group_id:
-            await album_buffer.add_message(message)
+            await album_buffer.add_message(message, bot)
             return
         
         # وظیفه‌ی ارسال
