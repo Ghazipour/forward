@@ -1146,14 +1146,14 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ▶️ تابع اصلی
 # ============================================================
 
-async def startup():
+async def startup(app):
     try:
         await request_queue.start_workers(worker_count=5)
         logger.info("✅ کارگرهای صف راه‌اندازی شدند")
     except Exception as e:
         error_logger.error(f"خطا در startup: {e}\n{traceback.format_exc()}")
 
-async def shutdown():
+async def shutdown(app):
     try:
         request_queue.stop()
         logger.info("🛑 کارگرهای صف متوقف شدند")
