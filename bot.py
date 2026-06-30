@@ -505,28 +505,52 @@ async def send_album_group(messages: List[Message], chat_id: int, bot) -> bool:
         if not messages or not bot:
             return False
         
+        # حداکثر ۱۰ رسانه در یک آلبوم
+        if len(messages) > 10:
+            # ارسال به صورت جداگانه
+            success = True
+            for msg in messages:
+                # استفاده از send_single_message برای هر کدام
+                if not await send_single_message(msg, chat_id, bot):
+                    success = False
+            return success
+        
         media_group = []
-        for msg in messages:
+        for idx, msg in enumerate(messages):
+            caption = msg.caption if idx == 0 else None  # فقط برای اولین
+            caption_entities = msg.caption_entities if idx == 0 else None
+            
             if msg.photo:
                 media_group.append(InputMediaPhoto(
                     msg.photo[-1].file_id,
-                    caption=msg.caption if not media_group else None,
-                    caption_entities=msg.caption_entities if not media_group else None
+                    caption=caption,
+                    caption_entities=caption_entities
                 ))
             elif msg.video:
                 media_group.append(InputMediaVideo(
                     msg.video.file_id,
-                    caption=msg.caption if not media_group else None,
-                    caption_entities=msg.caption_entities if not media_group else None
+                    caption=caption,
+                    caption_entities=caption_entities
                 ))
+            else:
+                # اگر نوع دیگر بود، به صورت جداگانه ارسال کن
+                if not await send_single_message(msg, chat_id, bot):
+                    return False
+                continue
         
         if media_group:
             await bot.send_media_group(chat_id=chat_id, media=media_group)
             return True
+        
         return False
     except Exception as e:
         error_logger.error(f"خطا در send_album_group به {chat_id}: {e}")
-        return False
+        # در صورت خطا، به صورت جداگانه ارسال کن (Fallback)
+        success = True
+        for msg in messages:
+            if not await send_single_message(msg, chat_id, bot):
+                success = False
+        return success
 
 # ============================================================
 # ارسال پیام (بدون استفاده از message.bot)
@@ -548,42 +572,55 @@ async def send_single_message(message: Message, chat_id: int, bot) -> bool:
         if message.media_group_id:
             return False
         
-        common_params = {
-            "chat_id": chat_id,
-            "caption": message.caption,
-            "caption_entities": message.caption_entities,
-        }
-        
-        # متن
+        # ========== متن طولانی ==========
         if msg_type == "text":
-            await bot.send_message(
-                chat_id=chat_id,
-                text=message.text,
-                entities=message.entities,
-                disable_web_page_preview=True
-            )
-            await circuit_breaker.record_success(chat_id)
-            return True
+            text = message.text
+            if len(text) > 4096:
+                # تقسیم به قطعات
+                for i in range(0, len(text), 4096):
+                    part = text[i:i+4096]
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=part,
+                        entities=message.entities,
+                        disable_web_page_preview=True
+                    )
+                await circuit_breaker.record_success(chat_id)
+                return True
+            else:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    entities=message.entities,
+                    disable_web_page_preview=True
+                )
+                await circuit_breaker.record_success(chat_id)
+                return True
         
-        # نظرسنجی
+        # ========== نظرسنجی ==========
         if msg_type == "poll":
             if not message.poll.options:
                 return False
-            await bot.send_poll(
-                chat_id=chat_id,
-                question=message.poll.question,
-                options=[opt.text for opt in message.poll.options],
-                is_anonymous=message.poll.is_anonymous,
-                type=message.poll.type,
-                allows_multiple_answers=message.poll.allows_multiple_answers,
-                correct_option_id=message.poll.correct_option_id,
-                explanation=message.poll.explanation,
-                explanation_parse_mode=message.poll.explanation_parse_mode
-            )
+            # فقط پارامترهای اجباری
+            poll_params = {
+                "chat_id": chat_id,
+                "question": message.poll.question,
+                "options": [opt.text for opt in message.poll.options],
+                "is_anonymous": message.poll.is_anonymous,
+                "type": message.poll.type,
+                "allows_multiple_answers": message.poll.allows_multiple_answers,
+            }
+            # اضافه کردن پارامترهای اختیاری در صورت وجود
+            if message.poll.correct_option_id is not None:
+                poll_params["correct_option_id"] = message.poll.correct_option_id
+            if message.poll.explanation:
+                poll_params["explanation"] = message.poll.explanation
+                poll_params["explanation_parse_mode"] = message.poll.explanation_parse_mode
+            await bot.send_poll(**poll_params)
             await circuit_breaker.record_success(chat_id)
             return True
         
-        # مکان
+        # ========== مکان ==========
         if msg_type == "location":
             await bot.send_location(
                 chat_id=chat_id,
@@ -593,7 +630,7 @@ async def send_single_message(message: Message, chat_id: int, bot) -> bool:
             await circuit_breaker.record_success(chat_id)
             return True
         
-        # مخاطب
+        # ========== مخاطب ==========
         if msg_type == "contact":
             await bot.send_contact(
                 chat_id=chat_id,
@@ -604,7 +641,7 @@ async def send_single_message(message: Message, chat_id: int, bot) -> bool:
             await circuit_breaker.record_success(chat_id)
             return True
         
-        # تاس
+        # ========== تاس ==========
         if msg_type == "dice":
             await bot.send_dice(
                 chat_id=chat_id,
@@ -613,16 +650,22 @@ async def send_single_message(message: Message, chat_id: int, bot) -> bool:
             await circuit_breaker.record_success(chat_id)
             return True
         
-        # انواع با file_id
+        # ========== انواع با file_id ==========
         file_id = get_file_id(message)
         if not file_id:
             return False
+        
+        common_params = {
+            "chat_id": chat_id,
+            "caption": message.caption,
+            "caption_entities": message.caption_entities,
+        }
         
         method_map = {
             "photo": {"method": "send_photo", "param": "photo"},
             "video": {"method": "send_video", "param": "video", "extra": {"supports_streaming": True}},
             "animation": {"method": "send_animation", "param": "animation"},
-            "sticker": {"method": "send_sticker", "param": "sticker"},
+            "sticker": {"method": "send_sticker", "param": "sticker"},   # استیکر
             "voice": {"method": "send_voice", "param": "voice"},
             "audio": {"method": "send_audio", "param": "audio"},
             "document": {"method": "send_document", "param": "document"},
@@ -638,6 +681,11 @@ async def send_single_message(message: Message, chat_id: int, bot) -> bool:
         params = {config["param"]: file_id, **common_params}
         if "extra" in config:
             params.update(config["extra"])
+        
+        # حذف caption برای استیکر و video_note (بعضی از انواع پشتیبانی نمی‌کنند)
+        if msg_type in ["sticker", "video_note"]:
+            params.pop("caption", None)
+            params.pop("caption_entities", None)
         
         await method(**params)
         await circuit_breaker.record_success(chat_id)
@@ -655,6 +703,10 @@ async def send_with_retry(message: Message, chat_id: int, bot) -> bool:
     base_delay = RETRY_DELAY
     for attempt in range(MAX_RETRIES + 1):
         try:
+            # اگر آلبوم است از تابع مخصوص استفاده کن
+            if message.media_group_id:
+                # اما ما آلبوم را در forward_handler مدیریت می‌کنیم، اینجا فقط تکی می‌رسد
+                pass
             success = await send_single_message(message, chat_id, bot)
             if success:
                 return True
